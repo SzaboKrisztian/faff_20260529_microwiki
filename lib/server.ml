@@ -23,8 +23,30 @@ let home_page pool _request =
     | [] -> "<p>No pages yet.</p>"
     | _ -> "<ul>" ^ String.concat "" items ^ "</ul>"
   in
-  layout "Microwiki"
-    (list_html ^ {|<p><a href="/wiki/home/edit">Create the home page</a></p>|})
+  (* Create-by-name form. This is a GET that only redirects (no mutation), so
+     it needs no CSRF token; the actual write happens on the edit form's POST. *)
+  let create_form =
+    {|<form method="get" action="/create">
+<p><input name="title" placeholder="New page title"></p>
+<p><button>Create page</button></p>
+</form>|}
+  in
+  layout "Microwiki" (list_html ^ create_form)
+
+(* Turn a typed page name into a slug and send the user to its edit form,
+   carrying the original title along so a new page is pre-filled with it. *)
+let create_page _pool request =
+  let title = Option.value ~default:"" (Dream.query request "title") in
+  match Slug.slugify title with
+  | "" -> Dream.redirect request "/"
+  | slug ->
+      let target =
+        Uri.make
+          ~path:("/wiki/" ^ slug ^ "/edit")
+          ~query:[ ("title", [ title ]) ]
+          ()
+      in
+      Dream.redirect request (Uri.to_string target)
 
 let view_page pool request =
   let slug = Dream.param request "slug" in
@@ -48,7 +70,13 @@ let edit_page pool request =
   let title, body =
     match found with
     | Some page -> (page.Page.title, page.Page.body)
-    | None -> (slug, "")
+    | None ->
+        (* New page: prefill the title from ?title= (set by the create form),
+           falling back to the slug itself. *)
+        let suggested =
+          Option.value ~default:slug (Dream.query request "title")
+        in
+        (suggested, "")
   in
   layout ("Edit " ^ slug)
     (Printf.sprintf
@@ -64,7 +92,7 @@ let edit_page pool request =
        (Dream.html_escape title) (Dream.html_escape body))
 
 let save_page pool request =
-  let slug = Dream.param request "slug" in
+  let url_slug = Dream.param request "slug" in
   let%lwt form = Dream.form request in
   match form with
   | `Ok fields ->
@@ -73,8 +101,19 @@ let save_page pool request =
         | Some value -> value
         | None -> default
       in
-      let title = field "title" slug in
+      let title = field "title" url_slug in
       let body = field "body" "" in
+      let%lwt existing =
+        query pool (fun conn -> Db.find_by_slug conn url_slug)
+      in
+      (* Slugs are stable: an existing page keeps its slug even if the title
+         changes. Only new pages derive their slug from the title (falling back
+         to the URL slug when the title has no slug-worthy characters). *)
+      let slug =
+        match existing with
+        | Some _ -> url_slug
+        | None -> ( match Slug.slugify title with "" -> url_slug | s -> s)
+      in
       let%lwt () = query pool (fun conn -> Db.save conn ~slug ~title ~body) in
       Dream.redirect request ("/wiki/" ^ slug)
   | _ -> Dream.respond ~status:`Bad_Request "Bad form"
@@ -92,6 +131,7 @@ let run () =
       @@ Dream.router
            [
              Dream.get "/" (home_page pool);
+             Dream.get "/create" (create_page pool);
              Dream.get "/wiki/:slug" (view_page pool);
              Dream.get "/wiki/:slug/edit" (edit_page pool);
              Dream.post "/wiki/:slug" (save_page pool);
