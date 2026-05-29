@@ -1,0 +1,4 @@
+(executable
+ (public_name microwiki)
+ (name main)
+ (libraries microwiki))

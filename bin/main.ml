@@ -1,0 +1,1 @@
+let () = Microwiki.Server.run ()
