@@ -1,3 +1,3 @@
 (tests
- (names slug_test)
+ (names slug_test wiki_link_test)
  (libraries microwiki alcotest))
