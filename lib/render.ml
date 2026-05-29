@@ -8,6 +8,15 @@ let render_wiki_links body =
       Printf.sprintf {|<a href="/wiki/%s">%s</a>|} slug (html_escape label))
     body
 
+(* Split the body into paragraphs on blank lines (one or more consecutive
+   newlines, tolerating trailing spaces), render wiki links within each, and
+   wrap each non-empty paragraph in a <p>. *)
+let render_body body =
+  Str.split (Str.regexp "\n[ \t\r]*\n[ \t\r\n]*") body
+  |> List.map (fun paragraph ->
+      Printf.sprintf "<p>%s</p>" (render_wiki_links paragraph))
+  |> String.concat "\n"
+
 let page ~title ~body =
   Printf.sprintf
     {|<!doctype html>
