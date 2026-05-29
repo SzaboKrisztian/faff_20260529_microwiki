@@ -75,6 +75,39 @@ let test_list_all_orders_by_title () =
         "ordered by title" [ "Apple"; "Banana" ] titles;
       Lwt.return_unit)
 
+let test_backlinks () =
+  with_db (fun conn ->
+      let%lwt () =
+        unwrap
+          (Microwiki.Db.save conn ~slug:"a" ~title:"Page A"
+             ~body:"see [[Target Page]]")
+      in
+      let%lwt () =
+        unwrap
+          (Microwiki.Db.save conn ~slug:"b" ~title:"Page B"
+             ~body:"also [[Target Page]] here")
+      in
+      let%lwt sources = unwrap (Microwiki.Db.backlinks conn "target-page") in
+      Alcotest.(check (list (pair string string)))
+        "pages linking to target-page"
+        [ ("a", "Page A"); ("b", "Page B") ]
+        sources;
+      Lwt.return_unit)
+
+let test_links_replaced_on_save () =
+  with_db (fun conn ->
+      let%lwt () =
+        unwrap (Microwiki.Db.save conn ~slug:"a" ~title:"A" ~body:"[[Foo]]")
+      in
+      let%lwt () =
+        unwrap (Microwiki.Db.save conn ~slug:"a" ~title:"A" ~body:"[[Bar]]")
+      in
+      let%lwt foo = unwrap (Microwiki.Db.backlinks conn "foo") in
+      let%lwt bar = unwrap (Microwiki.Db.backlinks conn "bar") in
+      Alcotest.(check int) "old link removed" 0 (List.length foo);
+      Alcotest.(check int) "new link present" 1 (List.length bar);
+      Lwt.return_unit)
+
 let () =
   Alcotest.run "db"
     [
@@ -87,5 +120,12 @@ let () =
             test_upsert_updates_existing;
           Alcotest.test_case "list_all orders by title" `Quick
             test_list_all_orders_by_title;
+        ] );
+      ( "links",
+        [
+          Alcotest.test_case "backlinks lists linking pages" `Quick
+            test_backlinks;
+          Alcotest.test_case "links replaced on save" `Quick
+            test_links_replaced_on_save;
         ] );
     ]

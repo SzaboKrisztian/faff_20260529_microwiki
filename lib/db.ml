@@ -61,22 +61,94 @@ module Q = struct
     (Caqti_type.unit ->* page_type)
       {sql| SELECT id, slug, title, body, created_at, updated_at
             FROM pages ORDER BY title |sql}
+
+  (* One row per [[wiki link]] occurrence in a page's body. [to_slug] is the
+     slugified link target (which need not exist as a page yet), [label] the
+     displayed text. The cascade only fires if foreign keys are enabled on the
+     connection (off by default in SQLite); we also clear links explicitly on
+     each save, so it is belt-and-suspenders for a future page-delete feature. *)
+  let create_links_table =
+    (Caqti_type.unit ->. Caqti_type.unit)
+      {sql| CREATE TABLE IF NOT EXISTS links (
+              id           INTEGER PRIMARY KEY AUTOINCREMENT,
+              from_page_id INTEGER NOT NULL,
+              to_slug      TEXT NOT NULL,
+              label        TEXT NOT NULL,
+              FOREIGN KEY (from_page_id) REFERENCES pages(id) ON DELETE CASCADE
+            ) |sql}
+
+  let create_links_index =
+    (Caqti_type.unit ->. Caqti_type.unit)
+      {sql| CREATE INDEX IF NOT EXISTS idx_links_to_slug
+            ON links (to_slug) |sql}
+
+  let delete_links_from =
+    (Caqti_type.int ->. Caqti_type.unit)
+      {sql| DELETE FROM links WHERE from_page_id = ? |sql}
+
+  let insert_link =
+    (Caqti_type.(t3 int string string) ->. Caqti_type.unit)
+      {sql| INSERT INTO links (from_page_id, to_slug, label)
+            VALUES (?, ?, ?) |sql}
+
+  (* Pages that link to [to_slug], newest title order. Joining on
+     from_page_id means only links from existing pages are returned. *)
+  let backlinks =
+    (Caqti_type.string ->* Caqti_type.(t2 string string))
+      {sql| SELECT DISTINCT p.slug, p.title
+            FROM links l
+            JOIN pages p ON p.id = l.from_page_id
+            WHERE l.to_slug = ?
+            ORDER BY p.title |sql}
 end
 
 (* Each operation takes a connection module (Caqti packs the live connection
    into a first-class module) and returns a [result] inside an Lwt promise:
    [Ok _] on success, [Error e] carrying a Caqti error otherwise. *)
 
-let init (module Conn : Caqti_lwt.CONNECTION) = Conn.exec Q.create_table ()
+(* Sequence Lwt-wrapped Caqti results, stopping at the first error. Lets us
+   chain several statements while propagating the first [Error]. *)
+let ( let*? ) m f =
+  match%lwt m with Error _ as e -> Lwt.return e | Ok x -> f x
 
-let save (module Conn : Caqti_lwt.CONNECTION) ~slug ~title ~body =
-  Conn.exec Q.upsert (slug, title, body)
+let init (module Conn : Caqti_lwt.CONNECTION) =
+  let*? () = Conn.exec Q.create_table () in
+  let*? () = Conn.exec Q.create_links_table () in
+  Conn.exec Q.create_links_index ()
 
 let find_by_slug (module Conn : Caqti_lwt.CONNECTION) slug =
   Conn.find_opt Q.find_by_slug slug
 
+(* Replace all outgoing links of a page with the given set. *)
+let replace_links (module Conn : Caqti_lwt.CONNECTION) ~from_page_id links =
+  let rec insert_all = function
+    | [] -> Lwt.return (Ok ())
+    | (link : Wiki_link.t) :: rest ->
+        let*? () =
+          Conn.exec Q.insert_link (from_page_id, link.slug, link.label)
+        in
+        insert_all rest
+  in
+  let*? () = Conn.exec Q.delete_links_from from_page_id in
+  insert_all links
+
+(* Upsert the page, then rebuild its outgoing links from the body's
+   [[wiki links]], so backlinks stay in sync with the content. *)
+let save (module Conn : Caqti_lwt.CONNECTION) ~slug ~title ~body =
+  let*? () = Conn.exec Q.upsert (slug, title, body) in
+  let*? page = Conn.find_opt Q.find_by_slug slug in
+  match Option.bind page (fun (p : Page.t) -> p.id) with
+  | None -> Lwt.return (Ok ())
+  | Some from_page_id ->
+      replace_links
+        (module Conn : Caqti_lwt.CONNECTION)
+        ~from_page_id (Wiki_link.extract body)
+
 let list_all (module Conn : Caqti_lwt.CONNECTION) =
   Conn.collect_list Q.list_all ()
+
+let backlinks (module Conn : Caqti_lwt.CONNECTION) slug =
+  Conn.collect_list Q.backlinks slug
 
 type pool = (Caqti_lwt.connection, Caqti_error.t) Caqti_lwt_unix.Pool.t
 

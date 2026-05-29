@@ -48,21 +48,38 @@ let create_page _pool request =
       in
       Dream.redirect request (Uri.to_string target)
 
+let backlinks_section sources =
+  match sources with
+  | [] -> ""
+  | _ ->
+      let items =
+        List.map
+          (fun (from_slug, from_title) ->
+            Printf.sprintf {|<li><a href="/wiki/%s">%s</a></li>|}
+              (Dream.html_escape from_slug)
+              (Dream.html_escape from_title))
+          sources
+      in
+      Printf.sprintf {|<hr><h2>Linked from</h2><ul>%s</ul>|}
+        (String.concat "" items)
+
 let view_page pool request =
   let slug = Dream.param request "slug" in
   let%lwt found = query pool (fun conn -> Db.find_by_slug conn slug) in
+  let%lwt sources = query pool (fun conn -> Db.backlinks conn slug) in
+  let backlinks = backlinks_section sources in
   match found with
   | Some page ->
       let body_html = Render.render_body page.Page.body in
       layout page.Page.title
-        (Printf.sprintf {|%s<p><a href="/wiki/%s/edit">Edit</a></p>|} body_html
-           (Dream.html_escape slug))
+        (Printf.sprintf {|%s<p><a href="/wiki/%s/edit">Edit</a></p>%s|}
+           body_html (Dream.html_escape slug) backlinks)
   | None ->
       layout slug
         (Printf.sprintf
            {|<p>This page does not exist yet.</p>
-<p><a class="missing" href="/wiki/%s/edit">Create it</a></p>|}
-           (Dream.html_escape slug))
+<p><a class="missing" href="/wiki/%s/edit">Create it</a></p>%s|}
+           (Dream.html_escape slug) backlinks)
 
 let edit_page pool request =
   let slug = Dream.param request "slug" in
