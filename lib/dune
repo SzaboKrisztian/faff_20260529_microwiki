@@ -1,5 +1,12 @@
 (library
  (name microwiki)
- (libraries dream caqti caqti-lwt caqti-driver-sqlite3 str alcotest)
+ (libraries
+  dream
+  caqti
+  caqti-lwt
+  caqti-lwt.unix
+  caqti-driver-sqlite3
+  str
+  alcotest)
  (preprocess
   (pps lwt_ppx)))

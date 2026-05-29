@@ -1,3 +1,5 @@
 (tests
- (names slug_test wiki_link_test)
- (libraries microwiki alcotest))
+ (names slug_test wiki_link_test db_test)
+ (libraries microwiki alcotest caqti caqti-lwt caqti-lwt.unix lwt.unix uri)
+ (preprocess
+  (pps lwt_ppx)))
