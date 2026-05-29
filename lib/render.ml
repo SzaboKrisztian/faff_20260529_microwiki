@@ -1,12 +1,30 @@
 let html_escape = Dream.html_escape
 
+(* Render [[wiki links]] to anchors while HTML-escaping everything else.
+
+   We scan manually instead of using [Str.global_substitute] because the gaps
+   between matches (the ordinary prose) must be escaped too, and substitute
+   only lets us rewrite the matches. For each link, the slug is derived from
+   the *raw* label (so "[[A & B]]" slugifies correctly), while the displayed
+   label is escaped to neutralise any HTML it contains. *)
 let render_wiki_links body =
-  Str.global_substitute Wiki_link.re
-    (fun s ->
-      let label = Str.matched_group 1 s in
-      let slug = Slug.slugify label in
-      Printf.sprintf {|<a href="/wiki/%s">%s</a>|} slug (html_escape label))
-    body
+  let buffer = Buffer.create (String.length body) in
+  let append_escaped start len =
+    Buffer.add_string buffer (html_escape (String.sub body start len))
+  in
+  let rec loop pos =
+    match Str.search_forward Wiki_link.re body pos with
+    | exception Not_found -> append_escaped pos (String.length body - pos)
+    | match_start ->
+        append_escaped pos (match_start - pos);
+        let label = Str.matched_group 1 body in
+        let slug = Slug.slugify label in
+        Buffer.add_string buffer
+          (Printf.sprintf {|<a href="/wiki/%s">%s</a>|} slug (html_escape label));
+        loop (Str.match_end ())
+  in
+  loop 0;
+  Buffer.contents buffer
 
 (* Split the body into paragraphs on blank lines (one or more consecutive
    newlines, tolerating trailing spaces), render wiki links within each, and
