@@ -62,6 +62,9 @@ module Q = struct
       {sql| SELECT id, slug, title, body, created_at, updated_at
             FROM pages ORDER BY title |sql}
 
+  let all_slugs =
+    (Caqti_type.unit ->* Caqti_type.string) {sql| SELECT slug FROM pages |sql}
+
   (* One row per [[wiki link]] occurrence in a page's body. [to_slug] is the
      slugified link target (which need not exist as a page yet), [label] the
      displayed text. The cascade only fires if foreign keys are enabled on the
@@ -146,6 +149,9 @@ let save (module Conn : Caqti_lwt.CONNECTION) ~slug ~title ~body =
 
 let list_all (module Conn : Caqti_lwt.CONNECTION) =
   Conn.collect_list Q.list_all ()
+
+let all_slugs (module Conn : Caqti_lwt.CONNECTION) =
+  Conn.collect_list Q.all_slugs ()
 
 let backlinks (module Conn : Caqti_lwt.CONNECTION) slug =
   Conn.collect_list Q.backlinks slug

@@ -6,8 +6,13 @@ let html_escape = Dream.html_escape
    between matches (the ordinary prose) must be escaped too, and substitute
    only lets us rewrite the matches. For each link, the slug is derived from
    the *raw* label (so "[[A & B]]" slugifies correctly), while the displayed
-   label is escaped to neutralise any HTML it contains. *)
-let render_wiki_links body =
+   label is escaped to neutralise any HTML it contains.
+
+   [exists] decides whether a target slug already has a page; links to
+   missing pages get a [class="missing"] so they can be styled differently.
+   It defaults to "everything exists" so callers that don't care (e.g. tests)
+   need not supply it. *)
+let render_wiki_links ?(exists = fun _ -> true) body =
   let buffer = Buffer.create (String.length body) in
   let append_escaped start len =
     Buffer.add_string buffer (html_escape (String.sub body start len))
@@ -19,8 +24,10 @@ let render_wiki_links body =
         append_escaped pos (match_start - pos);
         let label = Str.matched_group 1 body in
         let slug = Slug.slugify label in
+        let class_attr = if exists slug then "" else {| class="missing"|} in
         Buffer.add_string buffer
-          (Printf.sprintf {|<a href="/wiki/%s">%s</a>|} slug (html_escape label));
+          (Printf.sprintf {|<a%s href="/wiki/%s">%s</a>|} class_attr slug
+             (html_escape label));
         loop (Str.match_end ())
   in
   loop 0;
@@ -29,10 +36,10 @@ let render_wiki_links body =
 (* Split the body into paragraphs on blank lines (one or more consecutive
    newlines, tolerating trailing spaces), render wiki links within each, and
    wrap each non-empty paragraph in a <p>. *)
-let render_body body =
+let render_body ?(exists = fun _ -> true) body =
   Str.split (Str.regexp "\n[ \t\r]*\n[ \t\r\n]*") body
   |> List.map (fun paragraph ->
-      Printf.sprintf "<p>%s</p>" (render_wiki_links paragraph))
+      Printf.sprintf "<p>%s</p>" (render_wiki_links ~exists paragraph))
   |> String.concat "\n"
 
 let page ~title ~body =

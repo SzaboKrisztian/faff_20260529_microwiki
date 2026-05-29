@@ -70,7 +70,9 @@ let view_page pool request =
   let backlinks = backlinks_section sources in
   match found with
   | Some page ->
-      let body_html = Render.render_body page.Page.body in
+      let%lwt slugs = query pool Db.all_slugs in
+      let exists slug = List.mem slug slugs in
+      let body_html = Render.render_body ~exists page.Page.body in
       layout page.Page.title
         (Printf.sprintf {|%s<p><a href="/wiki/%s/edit">Edit</a></p>%s|}
            body_html (Dream.html_escape slug) backlinks)

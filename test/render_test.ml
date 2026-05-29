@@ -21,10 +21,21 @@ let test_render_body_cases () =
       ("[[<b>x</b>]]", {|<p><a href="/wiki/b-x-b">&lt;b&gt;x&lt;/b&gt;</a></p>|});
     ]
 
+let test_missing_link_styling () =
+  (* Only "home" exists; the link to a missing page gets class="missing". *)
+  let exists slug = slug = "home" in
+  Alcotest.(check string)
+    "missing link styled"
+    {|<p><a href="/wiki/home">Home</a> and <a class="missing" href="/wiki/ghost">Ghost</a></p>|}
+    (Microwiki.Render.render_body ~exists "[[Home]] and [[Ghost]]")
+
 let () =
   Alcotest.run "render"
     [
       ( "render_body",
-        [ Alcotest.test_case "render_body cases" `Quick test_render_body_cases ]
-      );
+        [
+          Alcotest.test_case "render_body cases" `Quick test_render_body_cases;
+          Alcotest.test_case "missing link styling" `Quick
+            test_missing_link_styling;
+        ] );
     ]
