@@ -1,0 +1,3 @@
+(tests
+ (names slug_test)
+ (libraries microwiki alcotest))
